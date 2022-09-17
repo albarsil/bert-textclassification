@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This repository seeks to be an example about how to create a BERT like model for text classification and deploy it on a common AWS cloud stack (API Gateway + Lambda + SageMaker endpoint).
+This repository seeks to be an example about how to create a BERT like model for text classification and deploy it on a common AWS cloud stack (API Gateway + Lambda + SageMaker endpoint). Currently, this repository is focused on binary classification.
 
 ## Repository structure
 
