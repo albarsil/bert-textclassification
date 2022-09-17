@@ -25,7 +25,7 @@ logger = logging.getLogger()
 
 # https://medium.com/building-the-system/gunicorn-3-means-of-concurrency-efbb547674b7
 threads = multiprocessing.cpu_count()
-workers = min(5, threads) # Suggested (2*threads)+1. But we have a limitation of 4Gi of memory and each worker takes about 400Mi to run
+workers = min(5, threads) # Suggested (2*threads)+1.
 
 model_server_timeout = os.environ.get('MODEL_SERVER_TIMEOUT', 30)
 model_server_workers = int(os.environ.get('MODEL_SERVER_WORKERS', workers))
