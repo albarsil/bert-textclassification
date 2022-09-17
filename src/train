@@ -1,0 +1,384 @@
+#!/usr/bin/env python3
+
+import json
+import logging
+import os
+import sys
+import traceback
+from collections import defaultdict
+
+import nltk
+import numpy as np
+import pandas as pd
+import pyarrow.parquet as pq
+import torch
+from sklearn.model_selection import train_test_split
+from torch import nn
+from transformers import (AutoModel, AutoTokenizer,
+                          get_linear_schedule_with_warmup)
+
+import methods
+import metric_service
+from model import EMBEDDING_MODEL_PATH, SEED, TextClassifier
+
+# Create logger
+logging.basicConfig(level=logging.DEBUG, format='[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s')
+logger = logging.getLogger()
+
+# Here we define the seed
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+
+# These are the paths to the important container files
+prefix = '/opt/ml/'
+input_path = prefix + 'input/data'
+output_path = os.path.join(prefix, 'output')
+model_path = os.path.join(prefix, 'model')
+checkpoint_path = os.path.join(prefix, 'checkpoints')
+param_path = os.path.join(prefix, 'input/config/hyperparameters.json')
+training_path = os.path.join(input_path, 'train')
+testing_path = os.path.join(input_path, 'test')
+_DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
+
+logger.info("Loading BERT stuffs")
+emb_model = AutoModel.from_pretrained(EMBEDDING_MODEL_PATH)
+tokenizer = AutoTokenizer.from_pretrained(EMBEDDING_MODEL_PATH)
+
+logger.info("The training will run on: {}".format(_DEVICE))
+
+def step(model:torch.nn.Module, data_loader:torch.utils.data.DataLoader, loss_fn:torch.nn, optimizer:torch.optim.Optimizer, scheduler:torch.optim.Optimizer, current_epoch:int, print_every:int=10, clip:bool=True, backprop:bool=True, verbose:bool=False) -> float:
+    """
+    Perform a step for train or validation
+
+    Parameters:
+        model (torch.nn.Module): The model
+        data_loader (torch.utils.data.DataLoader): The batched torch dataset loader
+        loss_fn (torch.nn): The torch loss function
+        optimizer (torch.optim): The torch optimizer
+        scheduler (transformers.optimization): The learning rate optimizer
+        current_epoch (bool): The current epoch that is calling this step
+        print_every (int): (Default 10) Flag to print on every X batches forwarded
+        clip (bool): If should performs gradient clipping. It's used to mitigate the problem of exploding gradients, which is of particular concern for recurrent networks (which LSTMs are a type of).
+        backprop (bool): If should perform the backpropagation and optimization
+        verbose (bool): If should verbose
+
+    Returns:
+        float: The mean of the step losses
+    """
+
+    losses = []
+    for batch_idx, batch_data in enumerate(data_loader):
+
+        targets = batch_data["targets"].to(_DEVICE)
+        
+        outputs = model(
+            input_ids=batch_data["input_ids"].to(_DEVICE),
+            attention_mask=batch_data["attention_mask"].to(_DEVICE)
+        )
+        
+        loss = loss_fn(outputs, targets.unsqueeze(1).float())
+        losses.append(loss.item())
+
+        if verbose:
+            if batch_idx % print_every == 0:
+                logger.info("Epoch: {} - Batch: {}/{} - Step loss: {}".format(current_epoch, batch_idx+1, len(data_loader), round(losses[-1],4)))
+
+        if backprop:  
+            loss.backward()
+
+            if clip:
+                nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+            optimizer.step()
+
+            if scheduler != None:
+                scheduler.step()
+
+            optimizer.zero_grad()
+    
+    return np.mean(losses)
+
+def train(model:torch.nn.Module, optimizer:torch.optim.Optimizer, scheduler:torch.optim.lr_scheduler._LRScheduler, loss_fn:torch.nn.Module, epochs:int, train_data_loader:torch.utils.data.DataLoader, val_data_loader:torch.utils.data.DataLoader, checkpoint:bool=False, max_epochs_without_improvement:int=5, verbose:bool=False):
+    """
+    Perform the model training
+
+    Parameters:
+        model (torch.nn.Module): The model
+        optimizer (torch.optim.Optimizer) The torch optimizer
+        scheduler (torch.optim.lr_scheduler._LRScheduler): The scheduler to perform the learning rate decay
+        loss_function (torch.nn.Module) The loss function that should be used
+        epochs (int): The epoch size
+        train_data_loader (torch.utils.data.DataLoader): The batched torch train dataset loader
+        val_data_loader (torch.utils.data.DataLoader): The batched torch validation dataset loader
+        checkpoint (bool): If should perform checkpoints during the model training
+        max_epochs_without_improvement (int): The early stopping strategy. How many epochs it should continue training without validation loss decay
+        verbose (bool): If should verbose
+
+    Returns:
+        defaultdict[train_loss,val_loss]: A dictionary with the lists of train and validation losses
+    """
+
+    history = defaultdict(list)
+
+    model = model.to(_DEVICE)
+
+    best_loss=999
+
+    early_stopping_count = 0
+
+    for epoch in range(epochs):
+
+        model = model.train()
+        train_loss = step(
+            model=model,
+            data_loader=train_data_loader,
+            loss_fn=loss_fn,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            current_epoch=epoch,
+            print_every=10,
+            clip=True,
+            backprop=True,
+            verbose=verbose
+        )
+
+        model = model.eval()
+        with torch.no_grad():
+            val_loss = step(
+                model=model,
+                data_loader=val_data_loader,
+                loss_fn=loss_fn,
+                optimizer=None,
+                scheduler=None,
+                current_epoch=epoch,
+                print_every=10,
+                clip=False,
+                backprop=False,
+                verbose=False
+            )
+    
+        history['train_loss'].append(train_loss)
+        history['val_loss'].append(val_loss)
+
+        logger.info("Epoch: {}/{}".format(epoch+1, epochs, round(train_loss,4), round(val_loss,4)))
+        logger.info('train_loss:{}'.format(round(train_loss,4)))
+        logger.info('val_loss:{}'.format(round(val_loss,4)))
+
+        # Early stopping
+        if val_loss >= best_loss:
+            early_stopping_count = early_stopping_count + 1
+            logger.info("Strike: {}/{}".format(early_stopping_count, max_epochs_without_improvement))
+
+        # Checkpoint stuffs
+        if checkpoint == True and val_loss < best_loss:
+            best_loss = val_loss
+            early_stopping_count = 0
+            logger.info("Dumping model checkpoint...")
+            model.to(torch.device("cpu")) # Change model to cpu before dumping
+            torch.save(methods.save_model_state(model), os.path.join(checkpoint_path, 'checkpoint-train_loss-{}-val_loss-{}.pth'.format(train_loss,val_loss)))
+            model = model.to(_DEVICE) # Change model back to the original device after the dump
+
+        # Early stopping
+        if early_stopping_count == max_epochs_without_improvement:
+            logger.info("The training step reached the maximum epochs without improvement and triggered the early stopping codition")
+            break
+
+    return history
+
+if __name__ == '__main__':
+
+    print('Starting the training.')
+    try:
+        # Read in any hyperparameters that the user passed with the training job
+        with open(param_path, 'r') as tc:
+            trainingParams = json.load(tc)
+
+        logger.info("Loading hyperparameters")
+        logger.info(json.dumps(trainingParams))
+        
+        n_epochs = int(trainingParams.get("n_epochs", 50))
+        batch_size = int(trainingParams.get("batch_size", 10))
+        learning_rate = float(trainingParams.get("learning_rate", 3e-5))
+        max_sentence_length_choice = trainingParams.get("max_sentence_length", 'mean') # This number was found in the Jul 2021 analysis
+        n_classes = int(trainingParams.get("n_classes", 1))
+        n_hidden = int(trainingParams.get("n_hidden", 16))
+        n_layers = int(trainingParams.get("n_layers", 1))
+        dropout_prob = float(trainingParams.get("dropout_prob", 0.2))
+        embeddings_grad = False if int(trainingParams.get('embeddings_grad', 0)) == 0 else True
+        max_epochs_without_improvement = int(trainingParams.get("max_epochs_without_improvement", 3))
+        class_weights = False if int(trainingParams.get('class_weights', 0)) == 0 else True
+        verbose = False if int(trainingParams.get('verbose', 0)) == 0 else True
+        quantize = False if int(trainingParams.get('quantize', 0)) == 0 else True
+        warmup = False if int(trainingParams.get('warmup', 1)) == 0 else True
+
+        hidden_size = [n_hidden] * n_layers
+
+        logger.info("Loading dataset files")
+
+        # Take the set of files and read them all into a single pandas dataframe
+        training_files = [ os.path.join(training_path, file) for file in os.listdir(training_path) ]
+        testing_files = [ os.path.join(testing_path, file) for file in os.listdir(testing_path) ]
+
+        if len(training_files) == 0:
+            raise ValueError(('There are no files in {}.\n' +
+                              'This usually indicates that the channel ({}) was incorrectly specified,\n' +
+                              'the data specification in S3 was incorrectly specified or the role specified\n' +
+                              'does not have permission to access the data.').format(training_path, 'train'))
+        if len(testing_files) == 0:
+            raise ValueError(('There are no files in {}.\n' +
+                              'This usually indicates that the channel ({}) was incorrectly specified,\n' +
+                              'the data specification in S3 was incorrectly specified or the role specified\n' +
+                              'does not have permission to access the data.').format(testing_path, 'test'))
+
+        raw_data = [pq.read_table(source=file).to_pandas() for file in training_files if file.endswith('.parquet')]
+        traindata = pd.concat(raw_data)
+
+        raw_data = [pq.read_table(source=file).to_pandas()  for file in testing_files if file.endswith('.parquet')]
+        testdata = pd.concat(raw_data)
+
+        logger.info(traindata.columns)
+
+        logger.info("Dataset preprocessing")
+        
+        # Look for the max sentence length that will be used.
+        # If max_sentence_length_choice is an integer, then model will use it
+        # If max_sentence_length_choice is an str, then the code below will check for the options [max,mean,most]
+        # If max_sentence_length_choice, then the code will raise an error
+        if isinstance(max_sentence_length_choice, str):
+            max_sentence_length = pd.concat([
+                traindata.input.apply(lambda x: len(nltk.word_tokenize(x))),
+                testdata.input.apply(lambda x: len(nltk.word_tokenize(x)))
+            ], axis=0)
+            
+            if max_sentence_length_choice == 'max':
+                max_sentence_length = int(max_sentence_length.max())
+            elif max_sentence_length_choice == 'mean':
+                max_sentence_length = int(max_sentence_length.mean() + max_sentence_length.std())
+            elif max_sentence_length_choice == 'most':
+                max_sentence_length = int(max_sentence_length.describe()['75%'] + max_sentence_length.std())
+            else:
+                raise ValueError("Expected that max_sentence_length_choice be an integer or one of [max,mean,most]")
+        elif isinstance(max_sentence_length_choice, int):
+            max_sentence_length = max_sentence_length_choice
+        else:
+            raise ValueError("Expected that max_sentence_length_choice be an integer or one of [max,mean,most]")
+
+        logger.info("Maximum sentence tokens: {}".format(max_sentence_length))
+
+        logger.info("Splitting data")
+
+        valdata, testdata = train_test_split(
+            testdata,
+            test_size=0.8,
+            random_state=SEED,
+            stratify = testdata.target
+        )
+
+        logger.info("Train: {}; Validation: {}; Test: {}".format(traindata.shape, valdata.shape, testdata.shape))
+
+        train_data_loader = methods.create_data_loader(inputs=traindata.input.tolist(), targets=traindata.target.tolist(), tokenizer=tokenizer, max_len=max_sentence_length, batch_size=batch_size)
+        val_data_loader = methods.create_data_loader(inputs=valdata.input.tolist(), targets=valdata.target.tolist(), tokenizer=tokenizer, max_len=max_sentence_length, batch_size=batch_size)
+
+        logger.info("Creating model...")
+
+        model = TextClassifier(n_classes=n_classes, embedding_model=emb_model, max_length=max_sentence_length, hidden_size=hidden_size, dropout_prob=dropout_prob, embeddings_grad=embeddings_grad)
+        logger.info(model)
+
+        logger.info("Setting up the training stuffs...")
+
+        # Take a look at https://discuss.pytorch.org/t/bceloss-vs-bcewithlogitsloss/33586/13
+        if class_weights:
+            class_weights = round(traindata.target.sum()/len(traindata),2)
+            loss_fn = nn.BCEWithLogitsLoss(pos_weight=torch.FloatTensor([class_weights])).to(_DEVICE)
+            logger.info("Considering class weight = {}".format(class_weights))
+        else:
+            loss_fn = nn.BCEWithLogitsLoss().to(_DEVICE)
+
+        optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+
+        # scheduler = None
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=0,
+            num_training_steps=len(train_data_loader) * n_epochs
+        )
+
+        logger.info("Started training...")
+        history = train(
+            model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            loss_fn=loss_fn,
+            epochs=n_epochs,
+            train_data_loader=train_data_loader,
+            val_data_loader=val_data_loader,
+            checkpoint=True,
+            max_epochs_without_improvement=max_epochs_without_improvement,
+            verbose=verbose
+        )
+        logger.info("Training completed")
+
+        # Delete old data references
+        training_positive_samples = int(traindata.target.sum())
+        training_samples = len(traindata)
+
+        del raw_data
+        del traindata
+        del valdata
+        del train_data_loader
+        del val_data_loader
+
+        # Do the testing on CPU
+        model.to(torch.device("cpu"))
+        model.eval()
+
+        # Quantization involves improving the efficiency of deep learning computations through smaller representations of model weights
+        # for example representing 32-bit floating point weights as 8-bit integers.
+        # The specific quantization technique we leveraged for our model was “Dynamic Quantization”.
+        # This technique involves quantizing weights AFTER training
+        # ref: https://blog.roblox.com/2020/05/scaled-bert-serve-1-billion-daily-requests-cpus/
+        if quantize:
+            model = torch.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8)
+
+        if warmup:
+            logger.info("Warming up...")
+            for x in range(0,1000):
+                methods.predict(model=model, tokenizer=tokenizer, sentence="Teste", dynamic_input=True, gpu=False)
+
+        logger.info("Making inference on test data...")
+        y_pred = []
+        for x in zip(testdata.input.tolist()):
+            y_pred.append(methods.predict(model=model, tokenizer=tokenizer, sentence=x[0], dynamic_input=True, gpu=False))
+
+        logger.info("Obtaining metrics...")
+        y_pred = [1 if x > 0.5 else 0 for x in y_pred]
+        metrics = metric_service.evaluate_binary_classification(y_true=testdata.target.tolist(), y_pred=y_pred)
+        metrics["TRAIN_INSTANCES_POSITIVE"] = training_positive_samples
+        metrics["TRAIN_INSTANCES_NEGATIVE"] = training_samples - training_positive_samples
+        metrics["TEST_INSTANCES_POSITIVE"] = int(testdata.target.sum())
+        metrics["TEST_INSTANCES_NEGATIVE"] = int(len(testdata) - testdata.target.sum())
+        metrics["EARLY_STOPPED"] = len(history['train_loss']) != n_epochs
+        metrics["EARLY_STOPPED_EPOCH"] = len(history['train_loss'])
+        metrics["TRAIN_LOSS"] = history['train_loss'][-1]
+        metrics["VALIDATION_LOSS"] = history['val_loss'][-1]
+
+        for k,v in metrics.items():
+            logger.info('{}:{}'.format(k,v))
+
+        logger.info("Dumping model...")
+        torch.save(methods.save_model_state(model), os.path.join(model_path, 'model.pth'))
+        json.dump(metrics, open(os.path.join(model_path, 'metrics.json'), 'w'))
+
+        logger.info('Training completed.')
+    except Exception as e:
+        # Write out an error file. This will be returned as the failureReason in the
+        # DescribeTrainingJob result.
+        trc = traceback.format_exc()
+        with open(os.path.join(output_path, 'failure'), 'w') as s:
+            s.write('Exception during training: ' + str(e) + '\n' + trc)
+        # Printing this causes the exception to be in the training job logs, as well.
+        logger.info('Exception during training: ' + str(e) + '\n' + trc)
+        # A non-zero exit code causes the training job to be marked as Failed.
+        sys.exit(255)
+
+    sys.exit(0)

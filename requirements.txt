@@ -1,0 +1,23 @@
+# Utils
+boto3
+Cython
+
+# ML
+torch==1.9.0
+transformers==4.10.0
+nltk>=3.6.2
+pandas>=1.0.0
+scikit-learn==0.24.1
+unidecode==1.3.2
+
+# backend
+flask
+gevent
+gunicorn
+pyschemavalidator
+requests
+pyarrow
+
+# testing
+pytest>=6.2.3
+pytest-cov>=2.12.1

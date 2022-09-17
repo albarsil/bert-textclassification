@@ -1,0 +1,108 @@
+{
+  "AlgorithmSpecification": {
+    "TrainingImage": "<account_id>/bert-textclassification:latest",
+    "TrainingInputMode": "File",
+    "MetricDefinitions": [
+      {
+        "Name": "train_loss",
+        "Regex": "train_loss:([0-9].*)"
+      },
+      {
+        "Name": "val_loss",
+        "Regex": "val_loss:([0-9].*)"
+      },
+      {
+        "Name": "ACCURACY",
+        "Regex": "ACCURACY:([0-9].*)"
+      },
+      {
+        "Name": "F1_WEIGHTED",
+        "Regex": "F1:([0-9].*)"
+      },
+      {
+        "Name": "F1_MICRO",
+        "Regex": "F1_MICRO:([0-9].*)"
+      },
+      {
+        "Name": "F1_MACRO",
+        "Regex": "F1_MACRO:([0-9].*)"
+      },
+      {
+        "Name": "PRECISION",
+        "Regex": "PRECISION:([0-9].*)"
+      },
+      {
+        "Name": "RECALL",
+        "Regex": "RECALL:([0-9].*)"
+      },
+      {
+        "Name": "AUC",
+        "Regex": "AUC:([0-9].*)"
+      },
+      {
+        "Name": "KAPPA",
+        "Regex": "KAPPA:([0-9].*)"
+      },
+      {
+        "Name": "POS_PRED_VALUE",
+        "Regex": "POS_PRED_VALUE:([0-9].*)"
+      },
+      {
+        "Name": "NEG_PRED_VALUE",
+        "Regex": "NEG_PRED_VALUE:([0-9].*)"
+      },
+      {
+        "Name": "SENSITIVITY",
+        "Regex": "SENSITIVITY:([0-9].*)"
+      },
+      {
+        "Name": "SPECIFICITY",
+        "Regex": "SPECIFICITY:([0-9].*)"
+      }
+    ]
+  },
+  "RoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/<AMAZONSAGEMAKER-EXECUTIONROLE>",
+  "InputDataConfig": [
+    {
+      "ChannelName": "train",
+      "InputMode": "File",
+      "DataSource": {
+        "S3DataSource": {
+          "S3DataType": "S3Prefix",
+          "S3Uri": "s3://textclassification/train/"
+        }
+      }
+    },
+    {
+      "ChannelName": "test",
+      "InputMode": "File",
+      "DataSource": {
+        "S3DataSource": {
+          "S3DataType": "S3Prefix",
+          "S3Uri": "s3://textclassification/test/"
+        }
+      }
+    }
+  ],
+  "OutputDataConfig": {
+      "S3OutputPath": "s3://textclassification/model/"
+  },
+  "VpcConfig": {
+    "SecurityGroupIds": ["sg-"],
+    "Subnets": ["subnet-"]
+  },
+  "ResourceConfig": {
+    "InstanceType": "ml.g4dn.xlarge",
+    "InstanceCount": 1,
+    "VolumeSizeInGB": 5
+  },
+  "StoppingCondition": {
+    "MaxRuntimeInSeconds": 10800
+  },
+  "EnableNetworkIsolation": false,
+  "EnableInterContainerTrafficEncryption": false,
+  "EnableManagedSpotTraining": false,
+  "CheckpointConfig": {
+    "S3Uri": "s3://textclassification/checkpoints/"
+  }
+}

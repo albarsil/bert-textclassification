@@ -1,0 +1,6 @@
+{
+    "WarmStartType": "IdenticalDataAndAlgorithm",
+    "ParentHyperParameterTuningJobs": [
+        { "HyperParameterTuningJobName": "<JOB_NAME>" }
+    ]
+}

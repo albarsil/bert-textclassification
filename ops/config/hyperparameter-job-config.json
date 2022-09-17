@@ -1,0 +1,49 @@
+{
+  "Strategy": "Bayesian",
+  "HyperParameterTuningJobObjective": {
+    "Type": "Minimize",
+    "MetricName": "train_loss"
+  },
+  "TrainingJobEarlyStoppingType": "Off",
+  "ResourceLimits": {
+    "MaxNumberOfTrainingJobs": 5,
+    "MaxParallelTrainingJobs": 1
+  },
+  "ParameterRanges": {
+    "IntegerParameterRanges": [
+      {
+        "Name": "n_hidden",
+        "MinValue": "8",
+        "MaxValue": "128",
+        "ScalingType": "Auto"
+      },
+      {
+        "Name": "n_layers",
+        "MinValue": "1",
+        "MaxValue": "3",
+        "ScalingType": "Auto"
+      },
+      {
+        "Name": "n_epochs",
+        "MinValue": "20",
+        "MaxValue": "100",
+        "ScalingType": "Auto"
+      },
+      {
+        "Name": "batch_size",
+        "MinValue": "50",
+        "MaxValue": "200",
+        "ScalingType": "Auto"
+      }
+
+    ],
+    "ContinuousParameterRanges": [
+      {
+        "Name": "learning_rate",
+        "MinValue": "0.001",
+        "MaxValue": "0.01",
+        "ScalingType": "Auto"
+      }
+    ]
+  }
+}
