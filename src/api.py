@@ -26,7 +26,7 @@ MODEL_THRESHOLD = 0.5
 
 @app.route("/ping", methods=["GET"])
 def ping():
-    """Determine if the container is working and healthy. In this sample container, we declare it healthy if we can load the model successfully. This method is mostly used by PicPay stuffs to check if the service is up and running"""
+    """Determine if the container is working and healthy. In this sample container, we declare it healthy if we can load the model successfully"""
     return make_response("", 200) 
 
 @app.route("/invocations/predict", methods=["POST"])
