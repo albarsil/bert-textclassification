@@ -20,7 +20,7 @@ def test_ping_endpoint():
         {'text': 'oi'}
         ])
 def test_model_endpoint_with_correct_payload(payload):
-    response = requests.post('http://localhost:80/invocations/check', json=payload)
+    response = requests.post('http://localhost:80/invocations/predict', json=payload)
     assert response.status_code == 200
     
     expected_output_keys = ['score', 'text']
@@ -35,5 +35,5 @@ def test_model_endpoint_with_correct_payload(payload):
         ])
 
 def test_model_endpoint_with_incorrect_payload(payload):
-    response = requests.post('http://localhost:80/invocations/check', json=payload)
+    response = requests.post('http://localhost:80/invocations/predict', json=payload)
     assert response.status_code == 400
