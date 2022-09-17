@@ -17,7 +17,7 @@ def test_ping_endpoint():
 
 @pytest.mark.parametrize(
     "payload", [
-        {'consumer_id': '1', 'text': 'oi'}
+        {'text': 'oi'}
         ])
 def test_model_endpoint_with_correct_payload(payload):
     response = requests.post('http://localhost:80/invocations/check', json=payload)
@@ -31,8 +31,6 @@ def test_model_endpoint_with_correct_payload(payload):
 
 @pytest.mark.parametrize(
     "payload", [
-        {'consumer_id': 1, 'text': 'oi'},
-        {'consumer_id': '1'},
         {'text': 'oi'}
         ])
 
