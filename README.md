@@ -23,11 +23,11 @@ bert-textclassification/
 │  │  │  │  ├─ validation/
 │  │  ├─ model/
 │  │  ├─ output/
-│  ├─ *.sh (to be run locally or trigger cloud executions)
+│  ├─ *.sh (to be run locally or trigger local or cloud executions)
 ├─ src/
 │  ├─ *.py
 ├─ tests/
-│  ├─ *.py (to be run locally or trigger by drone/git)
+│  ├─ *.py (to be run locally or trigger by git/jenkins/drone or another CI/CD tool)
 ├─ README.md
 ```
 
