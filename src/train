@@ -199,7 +199,7 @@ if __name__ == '__main__':
         n_epochs = int(trainingParams.get("n_epochs", 50))
         batch_size = int(trainingParams.get("batch_size", 10))
         learning_rate = float(trainingParams.get("learning_rate", 3e-5))
-        max_sentence_length_choice = trainingParams.get("max_sentence_length", 'mean') # This number was found in the Jul 2021 analysis
+        max_sentence_length_choice = trainingParams.get("max_sentence_length", 'mean')
         n_classes = int(trainingParams.get("n_classes", 1))
         n_hidden = int(trainingParams.get("n_hidden", 16))
         n_layers = int(trainingParams.get("n_layers", 1))
