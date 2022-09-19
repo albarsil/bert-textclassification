@@ -26,10 +26,10 @@ ENV PYTHONUNBUFFERED=TRUE
 ENV PYTHONDONTWRITEBYTECODE=TRUE
 ENV PATH="/opt/ml:${PATH}"
 
-##### Install NLTK stuffs
+##### Install NLTK required packages
 RUN python -m nltk.downloader stopwords punkt
 
-# Cloning the BERT stuffs to the container
+# Cloning the BERT model to the container
 RUN mkdir -p /root/.cache/huggingface/transformers/
 RUN git lfs install
 RUN git clone https://huggingface.co/Geotrend/distilbert-base-pt-cased /root/.cache/huggingface/transformers/distilbert-base-pt-cased/

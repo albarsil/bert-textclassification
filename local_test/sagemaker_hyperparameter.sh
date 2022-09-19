@@ -1,7 +1,7 @@
 
-PROFILE=$1
-IMAGE="bert-textclassification"
-SHORTNAME="sfsc"
+SHORTNAME=$1
+PROFILE=$2
+IMAGE=$3
 DT=`date "+%Y%m%d%H%M%S"`
 JOBNAME="${SHORTNAME}-${DT}"
 
