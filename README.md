@@ -37,7 +37,6 @@ Contains devops/operation files
 ### local_test
 A directory containing scripts and configurations to trigger training and inference jobs locally.
 
-Possui alguns arquivos:
 * __train-local.sh__: trigger the local training container.
 * __serve-local.sh__: trigger the local serving container and launch a local flask API.
 * __test-dir__: The directory that is mounted on the container with test data mounted everywhere that matches the schema of the container.
