@@ -36,7 +36,6 @@ RUN git clone https://huggingface.co/Geotrend/distilbert-base-pt-cased /root/.ca
 
 # Set up the code in the image
 COPY src/ /opt/ml/
-COPY ops/start.sh /opt/ml/
 COPY local_test/test_dir/model/ /opt/ml/model/
 WORKDIR /opt/ml/
 
