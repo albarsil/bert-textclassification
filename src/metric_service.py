@@ -1,6 +1,8 @@
 
 import warnings
 from collections import Counter
+
+import numpy as np
 import sklearn.metrics as metrics
 from sklearn.exceptions import UndefinedMetricWarning
 from sklearn.metrics import make_scorer
@@ -98,7 +100,36 @@ def _confusion_matrix(y_true, y_pred):
     tn, fp, fn, tp = metrics.confusion_matrix(y_true, y_pred).ravel()
     return int(tn), int(fp), int(fn), int(tp)
 
-def evaluate_binary_classification(y_true, y_pred):
+def smape(y, y_hat):
+  return (1/y.size * np.sum(np.abs(y-y_hat) / (np.abs(y) + np.abs(y_hat))*100))
+
+def corr(y, y_hat):
+  return np.corrcoef(y, y_hat)[0][1]
+
+def rmse(y, y_hat):
+  return np.sqrt(np.mean(np.square(y - y_hat)))
+
+def quantiles(y, y_hat, p):
+  try:
+    if isinstance(p, float):
+      return np.mean((np.quantile(y_hat, p)-np.quantile(y, p))/np.quantile(y, p))
+    else:
+      return np.mean((np.sum(np.quantile(y_hat, p))-np.sum(np.quantile(y, p)))/np.sum(np.quantile(y, p)))
+  except:
+    return np.Inf
+
+def evaluate_binary_classification(y_true: list, y_pred: list) -> dict:
+    """
+    Extract metrics from predicted and expected
+
+    Parameters:
+        y_true (list): A list of ground truth (correct) target values
+        y_pred (list): A list of estimated targets
+
+    Returns:
+        dict: A dicionary with the metrics
+    """
+    
     tn, fp, fn, tp = _confusion_matrix(y_true, y_pred)
 
     dct = {
@@ -121,51 +152,47 @@ def evaluate_binary_classification(y_true, y_pred):
     }
     return {k: 0.0 if not v else v for k, v in dct.items()}
 
-def cross_validation_scorers():
-    return {
-        'ACCURACY': make_scorer(metric_accuracy, greater_is_better=True),
-        'F1': make_scorer(metric_f1, greater_is_better=True),
-        'F1_MICRO': make_scorer(metric_f1_micro, greater_is_better=True),
-        'F1_MACRO': make_scorer(metric_f1_macro, greater_is_better=True),
-        'PRECISION': make_scorer(metric_precision, greater_is_better=True),
-        'RECALL': make_scorer(metric_recall, greater_is_better=True),
-        'AUC': make_scorer(metric_auc, greater_is_better=True),
-        'KAPPA': make_scorer(metric_kappa, greater_is_better=True),
-        'roc': make_scorer(metric_roc, greater_is_better=True),
-        'LOG_LOSS': make_scorer(metric_log_loss, greater_is_better=False),
-        'TRUE_POSITIVE': make_scorer(metric_true_positive, greater_is_better=True),
-        'TRUE_NEGATIVE': make_scorer(metric_true_negative, greater_is_better=True),
-        'FALSE_POSITIVE': make_scorer(metric_false_positive, greater_is_better=False),
-        'FALSE_NEGATIVE': make_scorer(metric_false_negative, greater_is_better=False),
-        'POS_PRED_VALUE': make_scorer(metric_positive_predictive_value, greater_is_better=True),
-        'NEG_PRED_VALUE': make_scorer(metric_negative_predictive_value, greater_is_better=True),
-        'SENSITIVITY': make_scorer(metric_sensitivity, greater_is_better=True),
-        'SPECIFICITY': make_scorer(metric_specificity, greater_is_better=True)
-    }
-
-def evaluate_model(y_true, y_pred):
+def evaluate_regression(y_true: list, y_pred: list, greater_than_zero:bool = True) -> dict:
     """
-    Some metrics to evaluate the models.
+    Extract metrics from predicted and expected
 
-    Args:
-        y_true: a vector (list or array) with the ground truth.
-        y_pred: a vector (list or array) with the predictions.
+    Parameters:
+        y_true (list): A list of ground truth (correct) target values
+        y_pred (list): A list of estimated targets
+        greater_than_zero (bool): (Default True) A boolean flag meaning if should consider just values greater than zero.
 
     Returns:
-        A dictionary with results of some metrics (check bellow).
+        dict: A dicionary with the metrics
     """
-    
-    tn, fp, fn, tp = _confusion_matrix(y_true, y_pred)
 
-    return {
-        'ACCURACY': metric_accuracy(y_true, y_pred),
-        'F1': metric_f1(y_true, y_pred),
-        'F1_MICRO': metric_f1_micro(y_true, y_pred),
-        'F1_MACRO': metric_f1_macro(y_true, y_pred),
-        'PRECISION': metric_precision(y_true, y_pred),
-        'RECALL': metric_recall(y_true, y_pred),
-        'TRUE_POSITIVE': tp,
-        'TRUE_NEGATIVE': tn,
-        'FALSE_POSITIVE': fp,
-        'FALSE_NEGATIVE': fn
+    y = np.array(list(zip(y_true,y_pred)))
+
+    if greater_than_zero:
+        y = y[(y[:,0] > 0) & (y[:,1] > 0)]
+        
+    y_true, y_pred = y[:,0],y[:,1]
+
+    dct = {
+        'MAPE': metrics.mean_absolute_percentage_error(y_true, y_pred),
+        'SMAPE': smape(y_true, y_pred),
+        'CORRELATION': corr(y_true, y_pred),
+        'MAE': metrics.mean_absolute_error(y_true, y_pred),
+        'RMSE': rmse(y_true, y_pred),
+        'MSLE': metrics.mean_squared_log_error(y_true, y_pred),
+        'MEAN-SE': metrics.mean_squared_error(y_true, y_pred),
+        'MEDIAN-SE': metrics.median_absolute_error(y_true, y_pred),
+        'R2': metrics.r2_score(y_true, y_pred),
+        'EVS': metrics.explained_variance_score(y_true, y_pred),
+        'MAXE': metrics.max_error(y_true, y_pred),
+        'MPD': metrics.mean_poisson_deviance(y_true, y_pred),
+        'MGD': metrics.mean_gamma_deviance(y_true, y_pred),
+        'MTD': metrics.mean_tweedie_deviance(y_true, y_pred),
+        'P50': quantiles(y_true, y_pred, 0.5),
+        'P75': quantiles(y_true, y_pred, 0.75),
+        'P90': quantiles(y_true, y_pred, 0.9),
+        'P95': quantiles(y_true, y_pred, 0.95),
+        'P99': quantiles(y_true, y_pred, 0.99),
+        'POVERALL': quantiles(y_true, y_pred, [0.5,0.75,0.9,0.95,0.99]),
     }
+
+    return {k: 0.0 if not v else v for k, v in dct.items()}
